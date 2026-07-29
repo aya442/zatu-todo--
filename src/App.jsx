@@ -49,6 +49,7 @@ function parseLooseDate(text) {
   // 今日を表すキーワードのリスト
   const todayKeywords = [
     "今日",
+    "本日",
     "今日中",
     "今すぐ",
     "すぐ",
@@ -74,7 +75,16 @@ function parseLooseDate(text) {
     return formatDate(tomorrow);
   }
 
-  //以下、形式を正規表現で判定して、月と日を抽出
+  //以下、形式を正規表現で判定して、年付き・年なしスラッシュ日付と日本語日付を抽出
+  // 2026/07/30
+  const fullSlashMatch = input.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (fullSlashMatch) {
+    const year = Number(fullSlashMatch[1]);
+    const month = Number(fullSlashMatch[2]);
+    const day = Number(fullSlashMatch[3]);
+    return formatDate(new Date(year, month - 1, day));
+  }
+
   // 4/2, 04/02, ４／２
   const slashMatch = input.match(/(\d{1,2})\/(\d{1,2})/);
   if (slashMatch) {
@@ -180,9 +190,43 @@ function groupTasks(tasks) {
 }
 
 // タスクアイテムのコンポーネント
-function TaskItem({ task, onToggle, onDelete }) {
+// - onMove はセクション（今日 / 明日 / 未設定）を GUI で変更するためのハンドラ
+function TaskItem({ task, onToggle, onDelete, onEdit, onMove }) {
+  // 編集モードの ON/OFF
+  const [isEditing, setIsEditing] = useState(false);
+  // 編集中の入力内容を保持するローカル状態
+  const [draftText, setDraftText] = useState(task.text);
+
+  // 親側から task.text が更新された場合、編集用テキストを最新化する
+  useEffect(() => {
+    setDraftText(task.text);
+  }, [task.text]);
+
+  // 編集内容を保存して親コンポーネントに通知する
+  const saveEdit = () => {
+    const trimmed = draftText.trim();
+    if (trimmed && trimmed !== task.text) {
+      onEdit(task.id, trimmed);
+    }
+    setIsEditing(false);
+  };
+
+  // 編集をキャンセルして、元のタスク文言に戻す
+  const cancelEdit = () => {
+    setDraftText(task.text);
+    setIsEditing(false);
+  };
+
   return (
-    <div style={styles.item}>
+    <div
+      style={styles.item}
+      draggable={!isEditing}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", task.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      title="ドラッグして別のセクションに移動できます"
+    >
       <button
         onClick={() => onToggle(task.id)}
         style={{
@@ -194,17 +238,51 @@ function TaskItem({ task, onToggle, onDelete }) {
       </button>
 
       <div style={styles.taskBody}>
-        <div
-          style={{
-            ...styles.taskText,
-            textDecoration: task.done ? "line-through" : "none",
-            opacity: task.done ? 0.5 : 1,
-          }}
-        >
-          {task.text}
-        </div>
-        <div style={styles.taskMeta}>{getRelativeLabel(task.date)}</div>
+        {isEditing ? (
+          <>
+            <input
+              style={styles.editInput}
+              value={draftText}
+              onChange={(e) => setDraftText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveEdit();
+                if (e.key === "Escape") cancelEdit();
+              }}
+              autoFocus
+            />
+            <div style={styles.editButtons}>
+              <button onClick={saveEdit} style={styles.saveButton}>
+                保存
+              </button>
+              <button onClick={cancelEdit} style={styles.cancelButton}>
+                取消
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div
+              style={{
+                ...styles.taskText,
+                textDecoration: task.done ? "line-through" : "none",
+                opacity: task.done ? 0.5 : 1,
+              }}
+            >
+              {task.text}
+            </div>
+            <div style={styles.taskMetaRow}>
+              <span style={styles.taskMeta}>{getRelativeLabel(task.date)}</span>
+              <span style={styles.dragHint}>ドラッグして別のセクションに移動</span>
+            </div>
+          </>
+        )}
       </div>
+
+      {!isEditing && (
+        <button onClick={() => setIsEditing(true)} style={styles.edit}>
+          編集
+        </button>
+      )}
 
       <button onClick={() => onDelete(task.id)} style={styles.delete}>
         削除
@@ -214,25 +292,55 @@ function TaskItem({ task, onToggle, onDelete }) {
 }
 
 // タスクのグループセクションのコンポーネント
-function TaskSection({ title, tasks, onToggle, onDelete }) {
-  if (tasks.length === 0) return null;
+function TaskSection({ title, tasks, onToggle, onDelete, onEdit, onMove, onRemoveSection }) {
+  // セクション内にタスクをドロップしたときに移動を反映する
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData("text/plain");
+    if (taskId) {
+      onMove(taskId, title);
+    }
+  };
 
   return (
-    <section style={styles.section}>
+    <section
+      style={styles.sectionCard}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       <h2 style={styles.sectionTitle}>
-        {title}
+        <span>{title}</span>
         <span style={styles.sectionCount}>{tasks.length}</span>
+        {onRemoveSection && tasks.length === 0 && (
+          <button
+            type="button"
+            style={styles.sectionRemove}
+            onClick={() => onRemoveSection(title)}
+          >
+            ✕
+          </button>
+        )}
       </h2>
 
       <div style={styles.sectionList}>
-        {tasks.map((task) => (
-          <TaskItem
-            key={task.id}
-            task={task}
-            onToggle={onToggle}
-            onDelete={onDelete}
-          />
-        ))}
+        {tasks.length === 0 ? (
+          <p style={styles.sectionEmpty}>タスクはありません</p>
+        ) : (
+          tasks.map((task) => (
+            <TaskItem
+              key={task.id}
+              task={task}
+              onToggle={onToggle}
+              onDelete={onDelete}
+              onEdit={onEdit}
+              onMove={onMove}
+            />
+          ))
+        )}
       </div>
     </section>
   );
@@ -245,12 +353,53 @@ export default function App() {
     const saved = localStorage.getItem("rough-tasks");
     return saved ? JSON.parse(saved) : [];
   });
+  const [dateSections, setDateSections] = useState(() => {
+    const saved = localStorage.getItem("rough-date-sections");
+    return saved ? JSON.parse(saved) : [];
+  });
 
   useEffect(() => {
     localStorage.setItem("rough-tasks", JSON.stringify(tasks));
   }, [tasks]);
 
+  useEffect(() => {
+    setDateSections((prev) => {
+      const today = formatDate(new Date());
+      const tomorrowDate = new Date();
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+      const tomorrow = formatDate(tomorrowDate);
+
+      const labels = tasks
+        .map((task) => task.date)
+        .filter((date) => date && date !== today && date !== tomorrow);
+
+      const next = [...new Set([...prev, ...labels])].sort();
+      return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
+    });
+  }, [tasks]);
+
+  useEffect(() => {
+    localStorage.setItem("rough-date-sections", JSON.stringify(dateSections));
+  }, [dateSections]);
+
   const groupedTasks = useMemo(() => groupTasks(tasks), [tasks]);
+
+  const todayGroup =
+    groupedTasks.find(([title]) => title === "今日") || ["今日", []];
+  const tomorrowGroup =
+    groupedTasks.find(([title]) => title === "明日") || ["明日", []];
+  const unsetGroup =
+    groupedTasks.find(([title]) => title === "未設定") || ["未設定", []];
+
+  const taskDateLabels = groupedTasks
+    .filter(([title]) => !["今日", "明日", "未設定"].includes(title))
+    .map(([title]) => title);
+
+  const allDateLabels = [...new Set([...dateSections, ...taskDateLabels])].sort();
+  const dateGroups = allDateLabels.map((label) => [
+    label,
+    groupedTasks.find(([title]) => title === label)?.[1] || [],
+  ]);
 
   function addTask() {
     // 入力値から両端の余白を削除し、空文字なら何もせず終了
@@ -287,39 +436,114 @@ export default function App() {
     setTasks((prev) => prev.filter((task) => task.id !== id));
   }
 
+  function removeDateSection(label) {
+    setDateSections((prev) => prev.filter((section) => section !== label));
+  }
+
+  function editTask(id, newText) {
+    setTasks((prev) =>
+      prev.map((task) =>
+        task.id === id ? { ...task, text: newText } : task
+      )
+    );
+  }
+
+  // GUI のセクション移動から呼ばれるハンドラ
+  // sectionLabel を受け取り、対応する日付を task.date に設定する
+  // - 今日 / 明日 / 未設定 は特別扱い
+  // - それ以外は日付ラベルのまま移動する
+  function moveTask(id, sectionLabel) {
+    setTasks((prev) =>
+      prev.map((task) => {
+        if (task.id !== id) return task;
+
+        let nextDate = null;
+        if (sectionLabel === "今日") {
+          nextDate = formatDate(new Date());
+        } else if (sectionLabel === "明日") {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          nextDate = formatDate(tomorrow);
+        } else if (sectionLabel === "未設定") {
+          nextDate = null;
+        } else {
+          nextDate = sectionLabel;
+        }
+
+        return { ...task, date: nextDate };
+      })
+    );
+  }
+
   const hasTasks = tasks.length > 0;
 
   return (
     <div style={styles.page}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>殴り書きタスク</h1>
-        <p style={styles.subtitle}>雑に書いて Enter するだけ</p>
+      <div style={styles.container}>
+        <section style={styles.inputCard}>
+          <h1 style={styles.title}>殴り書きタスク</h1>
+          <p style={styles.subtitle}>雑に書いて Enter するだけ</p>
 
-        <input
-          style={styles.input}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") addTask();
-          }}
-          placeholder="例：英語レポ 明日 / 3限 課題 / 4/2 提出 / ４月２日"
-        />
+          <input
+            style={styles.input}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addTask();
+            }}
+            placeholder="例：英語レポ 明日 / 3限 課題 / 4/2 提出 / ４月２日"
+          />
+        </section>
 
-        {!hasTasks ? (
-          <p style={styles.empty}>まだタスクがありません</p>
-        ) : (
-          <div style={styles.sections}>
-            {groupedTasks.map(([title, tasksInGroup]) => (
-              <TaskSection
-                key={title}
-                title={title}
-                tasks={tasksInGroup}
-                onToggle={toggleTask}
-                onDelete={deleteTask}
-              />
-            ))}
+        <div style={styles.sectionsLayout}>
+          <TaskSection
+            key={todayGroup[0]}
+            title={todayGroup[0]}
+            tasks={todayGroup[1]}
+            onToggle={toggleTask}
+            onDelete={deleteTask}
+            onEdit={editTask}
+            onMove={moveTask}
+          />
+
+          <div style={styles.bottomRow}>
+            <TaskSection
+              key={tomorrowGroup[0]}
+              title={tomorrowGroup[0]}
+              tasks={tomorrowGroup[1]}
+              onToggle={toggleTask}
+              onDelete={deleteTask}
+              onEdit={editTask}
+              onMove={moveTask}
+            />
+            <TaskSection
+              key={unsetGroup[0]}
+              title={unsetGroup[0]}
+              tasks={unsetGroup[1]}
+              onToggle={toggleTask}
+              onDelete={deleteTask}
+              onEdit={editTask}
+              onMove={moveTask}
+            />
           </div>
-        )}
+
+          {dateGroups.length > 0 && (
+            <div style={styles.otherRow}>
+              {dateGroups.map(([title, tasksInGroup]) => (
+                <TaskSection
+                  key={title}
+                  title={title}
+                  tasks={tasksInGroup}
+                  onToggle={toggleTask}
+                  onDelete={deleteTask}
+                  onEdit={editTask}
+                  onMove={moveTask}
+                  onRemoveSection={removeDateSection}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -333,48 +557,76 @@ const styles = {
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", sans-serif',
   },
-  card: {
-    maxWidth: "640px",
+  container: {
+    width: "100%",
+    maxWidth: "1000px",
     margin: "0 auto",
+    padding: "24px 16px 40px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "24px",
+  },
+  inputCard: {
     background: "#fff",
-    borderRadius: "16px",
-    padding: "24px",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+    borderRadius: "22px",
+    padding: "28px 28px 24px",
+    boxShadow: "0 16px 32px rgba(0,0,0,0.06)",
   },
   title: {
     margin: 0,
-    fontSize: "28px",
+    fontSize: "32px",
+    letterSpacing: "-0.03em",
   },
   subtitle: {
-    marginTop: "8px",
+    marginTop: "10px",
     color: "#666",
-    fontSize: "14px",
+    fontSize: "15px",
   },
   input: {
     width: "100%",
-    marginTop: "20px",
-    padding: "16px",
+    marginTop: "24px",
+    padding: "18px 16px",
     fontSize: "16px",
-    borderRadius: "12px",
+    borderRadius: "16px",
     border: "1px solid #ddd",
     outline: "none",
     boxSizing: "border-box",
+    background: "#fbfbfb",
   },
   empty: {
     color: "#888",
     textAlign: "center",
     padding: "32px 0 8px",
   },
-  sections: {
-    marginTop: "24px",
+  sectionsLayout: {
     display: "flex",
     flexDirection: "column",
     gap: "20px",
   },
-  section: {
+  topSection: {
+    width: "100%",
+    maxWidth: "720px",
+    margin: "0 auto",
+  },
+  bottomRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: "20px",
+  },
+  otherRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gap: "20px",
+  },
+  sectionCard: {
+    background: "#fff",
+    borderRadius: "18px",
+    padding: "20px",
+    boxShadow: "0 10px 24px rgba(0,0,0,0.05)",
+    minHeight: "180px",
     display: "flex",
     flexDirection: "column",
-    gap: "10px",
+    gap: "16px",
   },
   sectionTitle: {
     margin: 0,
@@ -389,10 +641,28 @@ const styles = {
     color: "#777",
     fontWeight: 500,
   },
+  sectionRemove: {
+    marginLeft: "auto",
+    padding: "4px 8px",
+    border: "1px solid #ddd",
+    borderRadius: "12px",
+    background: "#fff",
+    color: "#999",
+    cursor: "pointer",
+    fontSize: "12px",
+  },
   sectionList: {
     display: "flex",
     flexDirection: "column",
     gap: "10px",
+    minHeight: "120px",
+  },
+  sectionEmpty: {
+    margin: 0,
+    color: "#999",
+    fontSize: "14px",
+    padding: "22px 0",
+    textAlign: "center",
   },
   item: {
     display: "flex",
@@ -424,6 +694,64 @@ const styles = {
     marginTop: "6px",
     fontSize: "12px",
     color: "#777",
+  },
+  taskMetaRow: {
+    marginTop: "6px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    flexWrap: "wrap",
+    color: "#777",
+    fontSize: "12px",
+  },
+  moveLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "12px",
+    color: "#444",
+  },
+  dragHint: {
+    color: "#999",
+    fontSize: "12px",
+  },
+  edit: {
+    border: "none",
+    background: "transparent",
+    background: "transparent",
+    color: "#444",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  editInput: {
+    width: "100%",
+    padding: "12px",
+    fontSize: "15px",
+    borderRadius: "10px",
+    border: "1px solid #ccc",
+    boxSizing: "border-box",
+  },
+  editButtons: {
+    marginTop: "8px",
+    display: "flex",
+    gap: "8px",
+  },
+  saveButton: {
+    border: "none",
+    borderRadius: "10px",
+    padding: "8px 12px",
+    background: "#2f7fef",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  cancelButton: {
+    border: "1px solid #ccc",
+    borderRadius: "10px",
+    padding: "8px 12px",
+    background: "#fff",
+    color: "#444",
+    cursor: "pointer",
   },
   delete: {
     border: "none",
