@@ -1,12 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  getRedirectResult,
-  onAuthStateChanged,
-  signInAnonymously,
-  signInWithPopup,
-  signInWithRedirect,
-  signOut,
-} from "firebase/auth";
+import { onAuthStateChanged, signInAnonymously, signInWithPopup, signOut } from "firebase/auth";
 import {
   collection,
   deleteDoc,
@@ -439,19 +432,8 @@ export default function App() {
   const [authInitializing, setAuthInitializing] = useState(true);
   const [syncStatus, setSyncStatus] = useState("local");
   const [syncError, setSyncError] = useState(null);
-
+  const [popupFallbackNeeded, setPopupFallbackNeeded] = useState(false);
   useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        await getRedirectResult(auth);
-      } catch (error) {
-        console.error("Redirect sign-in failed", error);
-        setSyncError(error.message);
-      }
-    };
-
-    checkRedirect();
-
     const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       setAuthInitializing(false);
@@ -563,16 +545,35 @@ export default function App() {
     try {
       await signInWithPopup(auth, provider);
       setSyncError(null);
+      setPopupFallbackNeeded(false);
     } catch (error) {
-      console.warn("Popup sign-in failed, falling back to redirect", error);
-      try {
-        await signInWithRedirect(auth, provider);
-      } catch (redirectError) {
-        console.error("Redirect sign-in failed", redirectError);
-        setSyncError(redirectError.message);
+      // エラーコードに応じて振る舞いを分ける
+      const code = error?.code || "";
+      console.warn("Popup sign-in failed", code, error);
+
+      if (code === "auth/popup-closed-by-user") {
+        setSyncError(
+          "ポップアップが閉じられました。ポップアップの許可を確認するか、\n再試行（ポップアップ）またはページをリロードしてください。"
+        );
+        setPopupFallbackNeeded(true);
+        return;
       }
+
+      if (code === "auth/cancelled-popup-request" || code === "auth/popup-blocked") {
+        setSyncError(
+          "ポップアップがブロックされている可能性があります。ブラウザでポップアップを許可するか、\nページをリロードしてから再試行してください。"
+        );
+        setPopupFallbackNeeded(true);
+        return;
+      }
+
+      // その他のエラーは再試行とリロードを促す
+      setSyncError(error?.message || "認証に失敗しました");
+      setPopupFallbackNeeded(true);
     }
   };
+
+  // リダイレクト方式は廃止しました。ポップアップ再試行とページリロードで対処します。
 
   const signInAnonymouslyUser = async () => {
     try {
@@ -720,8 +721,26 @@ export default function App() {
                 Google でログイン
               </button>
               <button style={styles.signInButtonSecondary} onClick={signInAnonymouslyUser}>
-                匿名
+                匿名で続行
               </button>
+              {/* リダイレクト方式は廃止済み（ポップアップ再試行とリロードを使用） */}
+              {/* 再試行ボタン: ポップアップをもう一度試す */}
+              {syncError && (
+                <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 8 }}>
+                  <button
+                    style={{ ...styles.signInButtonSecondary, padding: "10px 14px", fontSize: 14 }}
+                    onClick={signInWithGoogle}
+                  >
+                    再試行（ポップアップ）
+                  </button>
+                  <button
+                    style={{ ...styles.signInButtonSecondary, padding: "10px 14px", fontSize: 14 }}
+                    onClick={() => window.location.reload()}
+                  >
+                    ページをリロード
+                  </button>
+                </div>
+              )}
             </div>
             {syncError && <p style={styles.errorText}>認証に失敗しました: {syncError}</p>}
           </section>
