@@ -1,4 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  getRedirectResult,
+  onAuthStateChanged,
+  signInAnonymously,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+} from "firebase/auth";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+} from "firebase/firestore";
+import { auth, db, provider } from "./firebase.js";
+import "./App.css";
 
 // タスクの日付をざっくりと推測してくれる関数群
 function formatDate(date) {
@@ -191,16 +210,49 @@ function groupTasks(tasks) {
 
 // タスクアイテムのコンポーネント
 // - onMove はセクション（今日 / 明日 / 未設定）を GUI で変更するためのハンドラ
-function TaskItem({ task, onToggle, onDelete, onEdit, onMove }) {
+function TaskItem({ task, onToggle, onDelete, onEdit, onMove, sectionTitle }) {
   // 編集モードの ON/OFF
   const [isEditing, setIsEditing] = useState(false);
   // 編集中の入力内容を保持するローカル状態
   const [draftText, setDraftText] = useState(task.text);
+  const [dragState, setDragState] = useState(null);
 
   // 親側から task.text が更新された場合、編集用テキストを最新化する
   useEffect(() => {
     setDraftText(task.text);
   }, [task.text]);
+
+  useEffect(() => {
+    if (!dragState) return;
+
+    const handlePointerMove = (event) => {
+      if (event.pointerId !== dragState.pointerId) return;
+      setDragState((prev) => (prev ? { ...prev, x: event.clientX, y: event.clientY } : prev));
+    };
+
+    const handlePointerUp = (event) => {
+      if (event.pointerId !== dragState.pointerId) return;
+
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-section-title]");
+      const nextSection = target?.getAttribute("data-section-title");
+
+      if (nextSection && nextSection !== sectionTitle) {
+        onMove(task.id, nextSection);
+      }
+
+      setDragState(null);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [dragState, onMove, sectionTitle, task.id]);
 
   // 編集内容を保存して親コンポーネントに通知する
   const saveEdit = () => {
@@ -217,15 +269,32 @@ function TaskItem({ task, onToggle, onDelete, onEdit, onMove }) {
     setIsEditing(false);
   };
 
+  const startTouchDrag = (event) => {
+    if (isEditing) return;
+    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+    if (event.target.closest("button, input, textarea, select, a")) return;
+
+    event.preventDefault();
+    setDragState({ pointerId: event.pointerId, x: event.clientX, y: event.clientY });
+  };
+
+  const isDragging = Boolean(dragState);
+
   return (
     <div
-      style={styles.item}
+      style={{
+        ...styles.item,
+        ...(isDragging ? { opacity: 0.7, transform: "scale(1.01)" } : {}),
+      }}
+      className={`task-item${isDragging ? " dragging" : ""}`}
       draggable={!isEditing}
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", task.id);
         e.dataTransfer.effectAllowed = "move";
       }}
-      title="ドラッグして別のセクションに移動できます"
+      onPointerDown={startTouchDrag}
+      onPointerCancel={() => setDragState(null)}
+      title="指で長押しして移動できます"
     >
       <button
         onClick={() => onToggle(task.id)}
@@ -237,7 +306,7 @@ function TaskItem({ task, onToggle, onDelete, onEdit, onMove }) {
         {task.done ? "✓" : "○"}
       </button>
 
-      <div style={styles.taskBody}>
+      <div style={styles.taskBody} className="task-body">
         {isEditing ? (
           <>
             <input
@@ -262,6 +331,7 @@ function TaskItem({ task, onToggle, onDelete, onEdit, onMove }) {
         ) : (
           <>
             <div
+              className="task-text"
               style={{
                 ...styles.taskText,
                 textDecoration: task.done ? "line-through" : "none",
@@ -270,9 +340,9 @@ function TaskItem({ task, onToggle, onDelete, onEdit, onMove }) {
             >
               {task.text}
             </div>
-            <div style={styles.taskMetaRow}>
+            <div style={styles.taskMetaRow} className="task-meta-row">
               <span style={styles.taskMeta}>{getRelativeLabel(task.date)}</span>
-              <span style={styles.dragHint}>ドラッグして別のセクションに移動</span>
+              <span style={styles.dragHint}>{isDragging ? "移動先を選択" : "移動"}</span>
             </div>
           </>
         )}
@@ -309,6 +379,8 @@ function TaskSection({ title, tasks, onToggle, onDelete, onEdit, onMove, onRemov
   return (
     <section
       style={styles.sectionCard}
+      className="task-section-card"
+      data-section-title={title}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
@@ -338,6 +410,7 @@ function TaskSection({ title, tasks, onToggle, onDelete, onEdit, onMove, onRemov
               onDelete={onDelete}
               onEdit={onEdit}
               onMove={onMove}
+              sectionTitle={title}
             />
           ))
         )}
@@ -349,6 +422,11 @@ function TaskSection({ title, tasks, onToggle, onDelete, onEdit, onMove, onRemov
 // メインのアプリコンポーネント
 export default function App() {
   const [input, setInput] = useState("");
+  const [theme, setTheme] = useState(() => {
+    const savedTheme = localStorage.getItem("rough-theme");
+    if (savedTheme) return savedTheme;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
   const [tasks, setTasks] = useState(() => {
     const saved = localStorage.getItem("rough-tasks");
     return saved ? JSON.parse(saved) : [];
@@ -357,6 +435,59 @@ export default function App() {
     const saved = localStorage.getItem("rough-date-sections");
     return saved ? JSON.parse(saved) : [];
   });
+  const [user, setUser] = useState(null);
+  const [authInitializing, setAuthInitializing] = useState(true);
+  const [syncStatus, setSyncStatus] = useState("local");
+  const [syncError, setSyncError] = useState(null);
+
+  useEffect(() => {
+    const checkRedirect = async () => {
+      try {
+        await getRedirectResult(auth);
+      } catch (error) {
+        console.error("Redirect sign-in failed", error);
+        setSyncError(error.message);
+      }
+    };
+
+    checkRedirect();
+
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      setAuthInitializing(false);
+      setSyncError(null);
+      setSyncStatus(nextUser ? "syncing" : "local");
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const tasksCollection = collection(db, "users", user.uid, "tasks");
+    const q = query(tasksCollection, orderBy("createdAt", "desc"));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const remoteTasks = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+
+        setTasks(remoteTasks);
+        setSyncStatus("synced");
+      },
+      (error) => {
+        console.error("Firestore sync failed", error);
+        setSyncError(error.message);
+        setSyncStatus("error");
+      }
+    );
+
+    return unsubscribe;
+  }, [user]);
 
   useEffect(() => {
     localStorage.setItem("rough-tasks", JSON.stringify(tasks));
@@ -382,6 +513,11 @@ export default function App() {
     localStorage.setItem("rough-date-sections", JSON.stringify(dateSections));
   }, [dateSections]);
 
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("rough-theme", theme);
+  }, [theme]);
+
   const groupedTasks = useMemo(() => groupTasks(tasks), [tasks]);
 
   const todayGroup =
@@ -401,6 +537,63 @@ export default function App() {
     groupedTasks.find(([title]) => title === label)?.[1] || [],
   ]);
 
+  async function saveTaskToFirestore(task) {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, "users", user.uid, "tasks", task.id), task);
+    } catch (error) {
+      console.error("Firestore save failed", error);
+      setSyncError(error.message);
+      setSyncStatus("error");
+    }
+  }
+
+  async function deleteTaskFromFirestore(id) {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, "users", user.uid, "tasks", id));
+    } catch (error) {
+      console.error("Firestore delete failed", error);
+      setSyncError(error.message);
+      setSyncStatus("error");
+    }
+  }
+
+  const signInWithGoogle = async () => {
+    try {
+      await signInWithPopup(auth, provider);
+      setSyncError(null);
+    } catch (error) {
+      console.warn("Popup sign-in failed, falling back to redirect", error);
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (redirectError) {
+        console.error("Redirect sign-in failed", redirectError);
+        setSyncError(redirectError.message);
+      }
+    }
+  };
+
+  const signInAnonymouslyUser = async () => {
+    try {
+      await signInAnonymously(auth);
+      setSyncError(null);
+    } catch (error) {
+      console.error("Anonymous sign in failed", error);
+      setSyncError(error.message);
+    }
+  };
+
+  const signOutUser = async () => {
+    try {
+      await signOut(auth);
+      setSyncStatus("local");
+    } catch (error) {
+      console.error("Sign out failed", error);
+      setSyncError(error.message);
+    }
+  };
+
   function addTask() {
     // 入力値から両端の余白を削除し、空文字なら何もせず終了
     const text = input.trim();
@@ -418,22 +611,29 @@ export default function App() {
 
     // タスクリストの先頭に追加し、入力欄をクリア
     setTasks((prev) => [newTask, ...prev]);
+    saveTaskToFirestore(newTask);
     setInput("");
   }
 
   function toggleTask(id) {
-    // 指定したタスクの完了状態を反転させる
-    // done が true なら false に、false なら true に切り替える
+    let updatedTask = null;
     setTasks((prev) =>
-      prev.map((task) =>
-        task.id === id ? { ...task, done: !task.done } : task
-      )
+      prev.map((task) => {
+        if (task.id !== id) return task;
+        updatedTask = { ...task, done: !task.done };
+        return updatedTask;
+      })
     );
+
+    if (updatedTask) {
+      saveTaskToFirestore(updatedTask);
+    }
   }
 
   function deleteTask(id) {
     // 指定した ID のタスクだけを残さずに削除する
     setTasks((prev) => prev.filter((task) => task.id !== id));
+    deleteTaskFromFirestore(id);
   }
 
   function removeDateSection(label) {
@@ -441,11 +641,18 @@ export default function App() {
   }
 
   function editTask(id, newText) {
+    let updatedTask = null;
     setTasks((prev) =>
-      prev.map((task) =>
-        task.id === id ? { ...task, text: newText } : task
-      )
+      prev.map((task) => {
+        if (task.id !== id) return task;
+        updatedTask = { ...task, text: newText };
+        return updatedTask;
+      })
     );
+
+    if (updatedTask) {
+      saveTaskToFirestore(updatedTask);
+    }
   }
 
   // GUI のセクション移動から呼ばれるハンドラ
@@ -453,6 +660,7 @@ export default function App() {
   // - 今日 / 明日 / 未設定 は特別扱い
   // - それ以外は日付ラベルのまま移動する
   function moveTask(id, sectionLabel) {
+    let updatedTask = null;
     setTasks((prev) =>
       prev.map((task) => {
         if (task.id !== id) return task;
@@ -470,22 +678,110 @@ export default function App() {
           nextDate = sectionLabel;
         }
 
-        return { ...task, date: nextDate };
+        updatedTask = { ...task, date: nextDate };
+        return updatedTask;
       })
     );
+
+    if (updatedTask) {
+      saveTaskToFirestore(updatedTask);
+    }
   }
 
   const hasTasks = tasks.length > 0;
 
+  if (authInitializing) {
+    return (
+      <div style={styles.page} className="app-shell">
+        <div style={styles.container} className="app-container">
+          <section style={styles.signInCard} className="app-input-card">
+            <h1 style={styles.title} className="app-title">認証を確認中...</h1>
+            <p style={styles.subtitle}>しばらくお待ちください。</p>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div style={styles.page} className="app-shell">
+        <div style={styles.container} className="app-container">
+          <section style={styles.signInCard} className="app-input-card">
+            <h1 style={styles.title} className="app-title">ログインしてください</h1>
+            <p style={styles.subtitle}>
+              Firestore にタスクを保存して同期するには、googleログインしてください。
+            </p>
+            <p style={styles.subtitle}>
+              Google アカウントでログインするか、匿名ログインを選択できます。
+            </p>
+            <div style={styles.signInChoices}>
+              <button style={styles.signInButton} onClick={signInWithGoogle}>
+                Google でログイン
+              </button>
+              <button style={styles.signInButtonSecondary} onClick={signInAnonymouslyUser}>
+                匿名
+              </button>
+            </div>
+            {syncError && <p style={styles.errorText}>認証に失敗しました: {syncError}</p>}
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div style={styles.page}>
-      <div style={styles.container}>
-        <section style={styles.inputCard}>
-          <h1 style={styles.title}>殴り書きタスク</h1>
-          <p style={styles.subtitle}>雑に書いて Enter するだけ</p>
+    <div style={styles.page} className="app-shell">
+      <div style={styles.container} className="app-container">
+        <section style={styles.inputCard} className="app-input-card">
+          <div style={styles.headerRow}>
+            <div>
+              <h1 style={styles.title} className="app-title">殴り書きタスク</h1>
+              <p style={styles.subtitle} className="app-subtitle">雑に書いて Enter するだけ</p>
+            </div>
+            <div style={styles.topControls}>
+              <button
+                type="button"
+                style={styles.themeToggle}
+                className="theme-toggle"
+                onClick={() => setTheme((prev) => (prev === "dark" ? "light" : "dark"))}
+              >
+                {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
+              </button>
+              <button
+                type="button"
+                style={styles.authButton}
+                onClick={user ? signOutUser : signIn}
+              >
+                {authInitializing
+                  ? "認証中..."
+                  : user
+                  ? "サインアウト"
+                  : "Google でログイン"}
+              </button>
+            </div>
+          </div>
+          <div style={styles.statusRow}>
+            {authInitializing ? (
+              "認証を確認しています..."
+            ) : user ? (
+              <>
+                <span style={styles.userInfo}>
+                  {user.displayName || user.email} でログイン中
+                </span>
+                <span style={styles.syncInfo}>
+                  {syncStatus === "synced" ? "同期済み" : syncStatus === "syncing" ? "同期中…" : syncStatus === "error" ? "同期エラー" : "ローカル"}
+                </span>
+              </>
+            ) : (
+              "ログインするとタスクが Firestore へ同期されます"
+            )}
+            {syncError && <span style={styles.errorText}>: {syncError}</span>}
+          </div>
 
           <input
             style={styles.input}
+            className="app-input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -495,7 +791,7 @@ export default function App() {
           />
         </section>
 
-        <div style={styles.sectionsLayout}>
+        <div style={styles.sectionsLayout} className="app-sections-layout">
           <TaskSection
             key={todayGroup[0]}
             title={todayGroup[0]}
@@ -506,7 +802,7 @@ export default function App() {
             onMove={moveTask}
           />
 
-          <div style={styles.bottomRow}>
+          <div style={styles.bottomRow} className="app-bottom-row">
             <TaskSection
               key={tomorrowGroup[0]}
               title={tomorrowGroup[0]}
@@ -528,7 +824,7 @@ export default function App() {
           </div>
 
           {dateGroups.length > 0 && (
-            <div style={styles.otherRow}>
+            <div style={styles.otherRow} className="app-other-row">
               {dateGroups.map(([title, tasksInGroup]) => (
                 <TaskSection
                   key={title}
@@ -552,7 +848,8 @@ export default function App() {
 const styles = {
   page: {
     minHeight: "100vh",
-    background: "#f5f5f5",
+    background: "var(--bg)",
+    color: "var(--text)",
     padding: "40px 16px",
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", sans-serif',
@@ -567,10 +864,93 @@ const styles = {
     gap: "24px",
   },
   inputCard: {
-    background: "#fff",
+    background: "var(--surface)",
     borderRadius: "22px",
     padding: "28px 28px 24px",
-    boxShadow: "0 16px 32px rgba(0,0,0,0.06)",
+    boxShadow: "0 10px 24px var(--shadow)",
+    border: "1px solid var(--border)",
+  },
+  headerRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "12px",
+  },
+  themeToggle: {
+    border: "1px solid var(--border)",
+    background: "var(--surface-soft)",
+    color: "var(--text)",
+    borderRadius: "999px",
+    padding: "8px 12px",
+    cursor: "pointer",
+    fontSize: "14px",
+    whiteSpace: "nowrap",
+  },
+  authButton: {
+    border: "1px solid var(--border)",
+    background: "var(--surface-soft)",
+    color: "var(--text)",
+    borderRadius: "999px",
+    padding: "8px 12px",
+    cursor: "pointer",
+    fontSize: "14px",
+    whiteSpace: "nowrap",
+    marginLeft: "10px",
+  },
+  signInButton: {
+    border: "1px solid var(--border)",
+    background: "var(--surface-soft)",
+    color: "var(--text)",
+    borderRadius: "999px",
+    padding: "14px 18px",
+    cursor: "pointer",
+    fontSize: "16px",
+    fontWeight: 600,
+    marginTop: "22px",
+  },
+  signInButtonSecondary: {
+    border: "1px solid var(--border)",
+    background: "transparent",
+    color: "var(--text)",
+    borderRadius: "999px",
+    padding: "14px 18px",
+    cursor: "pointer",
+    fontSize: "16px",
+    fontWeight: 600,
+    marginTop: "22px",
+  },
+  signInChoices: {
+    display: "grid",
+    gap: "12px",
+    marginTop: "20px",
+  },
+  topControls: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
+  statusRow: {
+    marginTop: "12px",
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "10px",
+    color: "var(--muted)",
+    fontSize: "13px",
+    lineHeight: "1.4",
+  },
+  userInfo: {
+    fontWeight: 600,
+  },
+  syncInfo: {
+    marginLeft: "8px",
+  },
+  errorText: {
+    color: "#f87171",
+  },
+  signInCard: {
+    padding: "32px 28px 26px",
+    textAlign: "center",
   },
   title: {
     margin: 0,
@@ -579,19 +959,20 @@ const styles = {
   },
   subtitle: {
     marginTop: "10px",
-    color: "#666",
+    color: "var(--muted)",
     fontSize: "15px",
   },
   input: {
     width: "100%",
     marginTop: "24px",
-    padding: "18px 16px",
+    padding: "16px 14px",
     fontSize: "16px",
-    borderRadius: "16px",
-    border: "1px solid #ddd",
+    borderRadius: "14px",
+    border: "1px solid var(--border)",
     outline: "none",
     boxSizing: "border-box",
-    background: "#fbfbfb",
+    background: "var(--surface-soft)",
+    color: "var(--text)",
   },
   empty: {
     color: "#888",
@@ -619,14 +1000,15 @@ const styles = {
     gap: "20px",
   },
   sectionCard: {
-    background: "#fff",
+    background: "var(--surface)",
     borderRadius: "18px",
     padding: "20px",
-    boxShadow: "0 10px 24px rgba(0,0,0,0.05)",
+    boxShadow: "0 8px 18px var(--shadow)",
     minHeight: "180px",
     display: "flex",
     flexDirection: "column",
     gap: "16px",
+    border: "1px solid var(--border)",
   },
   sectionTitle: {
     margin: 0,
@@ -638,16 +1020,16 @@ const styles = {
   },
   sectionCount: {
     fontSize: "12px",
-    color: "#777",
+    color: "var(--muted)",
     fontWeight: 500,
   },
   sectionRemove: {
     marginLeft: "auto",
     padding: "4px 8px",
-    border: "1px solid #ddd",
+    border: "1px solid var(--border)",
     borderRadius: "12px",
-    background: "#fff",
-    color: "#999",
+    background: "var(--surface)",
+    color: "var(--muted)",
     cursor: "pointer",
     fontSize: "12px",
   },
@@ -659,7 +1041,7 @@ const styles = {
   },
   sectionEmpty: {
     margin: 0,
-    color: "#999",
+    color: "var(--muted)",
     fontSize: "14px",
     padding: "22px 0",
     textAlign: "center",
@@ -669,18 +1051,19 @@ const styles = {
     alignItems: "center",
     gap: "12px",
     padding: "14px 12px",
-    border: "1px solid #eee",
+    border: "1px solid var(--border)",
     borderRadius: "12px",
-    background: "#fafafa",
+    background: "var(--surface-soft)",
   },
   check: {
     width: "32px",
     height: "32px",
     borderRadius: "50%",
-    border: "1px solid #ccc",
-    background: "#fff",
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
     cursor: "pointer",
     flexShrink: 0,
+    color: "var(--accent)",
   },
   taskBody: {
     flex: 1,
@@ -693,7 +1076,7 @@ const styles = {
   taskMeta: {
     marginTop: "6px",
     fontSize: "12px",
-    color: "#777",
+    color: "var(--muted)",
   },
   taskMetaRow: {
     marginTop: "6px",
@@ -713,7 +1096,7 @@ const styles = {
     color: "#444",
   },
   dragHint: {
-    color: "#999",
+    color: "var(--muted)",
     fontSize: "12px",
   },
   edit: {
@@ -741,22 +1124,22 @@ const styles = {
     border: "none",
     borderRadius: "10px",
     padding: "8px 12px",
-    background: "#2f7fef",
+    background: "var(--accent)",
     color: "#fff",
     cursor: "pointer",
   },
   cancelButton: {
-    border: "1px solid #ccc",
+    border: "1px solid var(--border)",
     borderRadius: "10px",
     padding: "8px 12px",
-    background: "#fff",
-    color: "#444",
+    background: "var(--surface)",
+    color: "var(--text)",
     cursor: "pointer",
   },
   delete: {
     border: "none",
     background: "transparent",
-    color: "#888",
+    color: "var(--muted)",
     cursor: "pointer",
     flexShrink: 0,
   },
