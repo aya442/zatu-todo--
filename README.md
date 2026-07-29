@@ -4,7 +4,9 @@
 
 > タスク管理ツール自体の作成にかかる手間を削減
 
-![デモのスクリーンショットやGIF](docs/images/demo.gif)
+サイトはこちら https://light-todo-24f87.web.app/
+
+![スクリーンショット](media\image.png)
 
 ## 📖 概要
 
