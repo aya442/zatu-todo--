@@ -180,7 +180,32 @@ function groupTasks(tasks) {
 }
 
 // タスクアイテムのコンポーネント
-function TaskItem({ task, onToggle, onDelete }) {
+function TaskItem({ task, onToggle, onDelete, onEdit }) {
+  // 編集モードの ON/OFF
+  const [isEditing, setIsEditing] = useState(false);
+  // 編集中の入力内容を保持するローカル状態
+  const [draftText, setDraftText] = useState(task.text);
+
+  // 親側から task.text が更新された場合、編集用テキストを最新化する
+  useEffect(() => {
+    setDraftText(task.text);
+  }, [task.text]);
+
+  // 編集内容を保存して親コンポーネントに通知する
+  const saveEdit = () => {
+    const trimmed = draftText.trim();
+    if (trimmed && trimmed !== task.text) {
+      onEdit(task.id, trimmed);
+    }
+    setIsEditing(false);
+  };
+
+  // 編集をキャンセルして、元のタスク文言に戻す
+  const cancelEdit = () => {
+    setDraftText(task.text);
+    setIsEditing(false);
+  };
+
   return (
     <div style={styles.item}>
       <button
@@ -194,17 +219,48 @@ function TaskItem({ task, onToggle, onDelete }) {
       </button>
 
       <div style={styles.taskBody}>
-        <div
-          style={{
-            ...styles.taskText,
-            textDecoration: task.done ? "line-through" : "none",
-            opacity: task.done ? 0.5 : 1,
-          }}
-        >
-          {task.text}
-        </div>
-        <div style={styles.taskMeta}>{getRelativeLabel(task.date)}</div>
+        {isEditing ? (
+          <>
+            <input
+              style={styles.editInput}
+              value={draftText}
+              onChange={(e) => setDraftText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveEdit();
+                if (e.key === "Escape") cancelEdit();
+              }}
+              autoFocus
+            />
+            <div style={styles.editButtons}>
+              <button onClick={saveEdit} style={styles.saveButton}>
+                保存
+              </button>
+              <button onClick={cancelEdit} style={styles.cancelButton}>
+                取消
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div
+              style={{
+                ...styles.taskText,
+                textDecoration: task.done ? "line-through" : "none",
+                opacity: task.done ? 0.5 : 1,
+              }}
+            >
+              {task.text}
+            </div>
+            <div style={styles.taskMeta}>{getRelativeLabel(task.date)}</div>
+          </>
+        )}
       </div>
+
+      {!isEditing && (
+        <button onClick={() => setIsEditing(true)} style={styles.edit}>
+          編集
+        </button>
+      )}
 
       <button onClick={() => onDelete(task.id)} style={styles.delete}>
         削除
@@ -214,7 +270,7 @@ function TaskItem({ task, onToggle, onDelete }) {
 }
 
 // タスクのグループセクションのコンポーネント
-function TaskSection({ title, tasks, onToggle, onDelete }) {
+function TaskSection({ title, tasks, onToggle, onDelete, onEdit }) {
   if (tasks.length === 0) return null;
 
   return (
@@ -231,6 +287,7 @@ function TaskSection({ title, tasks, onToggle, onDelete }) {
             task={task}
             onToggle={onToggle}
             onDelete={onDelete}
+            onEdit={onEdit}
           />
         ))}
       </div>
@@ -287,6 +344,14 @@ export default function App() {
     setTasks((prev) => prev.filter((task) => task.id !== id));
   }
 
+  function editTask(id, newText) {
+    setTasks((prev) =>
+      prev.map((task) =>
+        task.id === id ? { ...task, text: newText } : task
+      )
+    );
+  }
+
   const hasTasks = tasks.length > 0;
 
   return (
@@ -316,6 +381,7 @@ export default function App() {
                 tasks={tasksInGroup}
                 onToggle={toggleTask}
                 onDelete={deleteTask}
+                onEdit={editTask}
               />
             ))}
           </div>
@@ -424,6 +490,42 @@ const styles = {
     marginTop: "6px",
     fontSize: "12px",
     color: "#777",
+  },
+  edit: {
+    border: "none",
+    background: "transparent",
+    color: "#444",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  editInput: {
+    width: "100%",
+    padding: "12px",
+    fontSize: "15px",
+    borderRadius: "10px",
+    border: "1px solid #ccc",
+    boxSizing: "border-box",
+  },
+  editButtons: {
+    marginTop: "8px",
+    display: "flex",
+    gap: "8px",
+  },
+  saveButton: {
+    border: "none",
+    borderRadius: "10px",
+    padding: "8px 12px",
+    background: "#2f7fef",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  cancelButton: {
+    border: "1px solid #ccc",
+    borderRadius: "10px",
+    padding: "8px 12px",
+    background: "#fff",
+    color: "#444",
+    cursor: "pointer",
   },
   delete: {
     border: "none",
