@@ -271,25 +271,27 @@ function TaskItem({ task, onToggle, onDelete, onEdit }) {
 
 // タスクのグループセクションのコンポーネント
 function TaskSection({ title, tasks, onToggle, onDelete, onEdit }) {
-  if (tasks.length === 0) return null;
-
   return (
-    <section style={styles.section}>
+    <section style={styles.sectionCard}>
       <h2 style={styles.sectionTitle}>
         {title}
         <span style={styles.sectionCount}>{tasks.length}</span>
       </h2>
 
       <div style={styles.sectionList}>
-        {tasks.map((task) => (
-          <TaskItem
-            key={task.id}
-            task={task}
-            onToggle={onToggle}
-            onDelete={onDelete}
-            onEdit={onEdit}
-          />
-        ))}
+        {tasks.length === 0 ? (
+          <p style={styles.sectionEmpty}>タスクはありません</p>
+        ) : (
+          tasks.map((task) => (
+            <TaskItem
+              key={task.id}
+              task={task}
+              onToggle={onToggle}
+              onDelete={onDelete}
+              onEdit={onEdit}
+            />
+          ))
+        )}
       </div>
     </section>
   );
@@ -308,6 +310,16 @@ export default function App() {
   }, [tasks]);
 
   const groupedTasks = useMemo(() => groupTasks(tasks), [tasks]);
+
+  const todayGroup =
+    groupedTasks.find(([title]) => title === "今日") || ["今日", []];
+  const tomorrowGroup =
+    groupedTasks.find(([title]) => title === "明日") || ["明日", []];
+  const unsetGroup =
+    groupedTasks.find(([title]) => title === "未設定") || ["未設定", []];
+  const otherGroups = groupedTasks.filter(
+    ([title]) => !["今日", "明日", "未設定"].includes(title)
+  );
 
   function addTask() {
     // 入力値から両端の余白を削除し、空文字なら何もせず終了
@@ -356,36 +368,66 @@ export default function App() {
 
   return (
     <div style={styles.page}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>殴り書きタスク</h1>
-        <p style={styles.subtitle}>雑に書いて Enter するだけ</p>
+      <div style={styles.container}>
+        <section style={styles.inputCard}>
+          <h1 style={styles.title}>殴り書きタスク</h1>
+          <p style={styles.subtitle}>雑に書いて Enter するだけ</p>
 
-        <input
-          style={styles.input}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") addTask();
-          }}
-          placeholder="例：英語レポ 明日 / 3限 課題 / 4/2 提出 / ４月２日"
-        />
+          <input
+            style={styles.input}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addTask();
+            }}
+            placeholder="例：英語レポ 明日 / 3限 課題 / 4/2 提出 / ４月２日"
+          />
+        </section>
 
-        {!hasTasks ? (
-          <p style={styles.empty}>まだタスクがありません</p>
-        ) : (
-          <div style={styles.sections}>
-            {groupedTasks.map(([title, tasksInGroup]) => (
-              <TaskSection
-                key={title}
-                title={title}
-                tasks={tasksInGroup}
-                onToggle={toggleTask}
-                onDelete={deleteTask}
-                onEdit={editTask}
-              />
-            ))}
+        <div style={styles.sectionsLayout}>
+          <TaskSection
+            key={todayGroup[0]}
+            title={todayGroup[0]}
+            tasks={todayGroup[1]}
+            onToggle={toggleTask}
+            onDelete={deleteTask}
+            onEdit={editTask}
+          />
+
+          <div style={styles.bottomRow}>
+            <TaskSection
+              key={tomorrowGroup[0]}
+              title={tomorrowGroup[0]}
+              tasks={tomorrowGroup[1]}
+              onToggle={toggleTask}
+              onDelete={deleteTask}
+              onEdit={editTask}
+            />
+            <TaskSection
+              key={unsetGroup[0]}
+              title={unsetGroup[0]}
+              tasks={unsetGroup[1]}
+              onToggle={toggleTask}
+              onDelete={deleteTask}
+              onEdit={editTask}
+            />
           </div>
-        )}
+
+          {otherGroups.length > 0 && (
+            <div style={styles.otherRow}>
+              {otherGroups.map(([title, tasksInGroup]) => (
+                <TaskSection
+                  key={title}
+                  title={title}
+                  tasks={tasksInGroup}
+                  onToggle={toggleTask}
+                  onDelete={deleteTask}
+                  onEdit={editTask}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -399,48 +441,76 @@ const styles = {
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", sans-serif',
   },
-  card: {
-    maxWidth: "640px",
+  container: {
+    width: "100%",
+    maxWidth: "1000px",
     margin: "0 auto",
+    padding: "24px 16px 40px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "24px",
+  },
+  inputCard: {
     background: "#fff",
-    borderRadius: "16px",
-    padding: "24px",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+    borderRadius: "22px",
+    padding: "28px 28px 24px",
+    boxShadow: "0 16px 32px rgba(0,0,0,0.06)",
   },
   title: {
     margin: 0,
-    fontSize: "28px",
+    fontSize: "32px",
+    letterSpacing: "-0.03em",
   },
   subtitle: {
-    marginTop: "8px",
+    marginTop: "10px",
     color: "#666",
-    fontSize: "14px",
+    fontSize: "15px",
   },
   input: {
     width: "100%",
-    marginTop: "20px",
-    padding: "16px",
+    marginTop: "24px",
+    padding: "18px 16px",
     fontSize: "16px",
-    borderRadius: "12px",
+    borderRadius: "16px",
     border: "1px solid #ddd",
     outline: "none",
     boxSizing: "border-box",
+    background: "#fbfbfb",
   },
   empty: {
     color: "#888",
     textAlign: "center",
     padding: "32px 0 8px",
   },
-  sections: {
-    marginTop: "24px",
+  sectionsLayout: {
     display: "flex",
     flexDirection: "column",
     gap: "20px",
   },
-  section: {
+  topSection: {
+    width: "100%",
+    maxWidth: "720px",
+    margin: "0 auto",
+  },
+  bottomRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: "20px",
+  },
+  otherRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gap: "20px",
+  },
+  sectionCard: {
+    background: "#fff",
+    borderRadius: "18px",
+    padding: "20px",
+    boxShadow: "0 10px 24px rgba(0,0,0,0.05)",
+    minHeight: "180px",
     display: "flex",
     flexDirection: "column",
-    gap: "10px",
+    gap: "16px",
   },
   sectionTitle: {
     margin: 0,
@@ -459,6 +529,14 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "10px",
+    minHeight: "120px",
+  },
+  sectionEmpty: {
+    margin: 0,
+    color: "#999",
+    fontSize: "14px",
+    padding: "22px 0",
+    textAlign: "center",
   },
   item: {
     display: "flex",
