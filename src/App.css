@@ -55,7 +55,7 @@
 }
 
 .app-title {
-  font-size: clamp(1.7rem, 2.5vw, 2.3rem);
+  font-size: clamp(1.25rem, 2.3vw, 2.3rem);
   color: var(--text);
 }
 
@@ -117,67 +117,72 @@
 
 @media (max-width: 768px) {
   .app-shell {
-    padding: 0;
+    padding: 0 !important;
   }
 
   .app-container {
-    padding: 16px 12px 28px;
-    gap: 16px;
+    padding: 16px 12px 28px !important;
+    gap: 16px !important;
   }
 
   .app-input-card {
-    padding: 20px 16px 18px;
-    border-radius: 16px;
+    padding: 20px 16px 18px !important;
+    border-radius: 16px !important;
   }
 
   .theme-toggle {
-    padding: 7px 10px;
-    font-size: 13px;
+    padding: 7px 10px !important;
+    font-size: 13px !important;
   }
 
   .app-input {
-    margin-top: 16px;
-    padding: 14px 12px;
+    margin-top: 16px !important;
+    padding: 14px 12px !important;
   }
 
   .app-bottom-row,
   .app-other-row {
     grid-template-columns: 1fr !important;
     display: grid !important;
-    gap: 16px;
+    gap: 16px !important;
   }
 
   .task-section-card {
-    min-height: auto;
-    padding: 16px;
+    min-height: auto !important;
+    padding: 16px !important;
   }
 
   .task-item {
-    align-items: flex-start;
-    padding: 12px;
+    align-items: flex-start !important;
+    padding: 12px !important;
   }
 
   .task-meta-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 4px !important;
   }
 }
 
 @media (max-width: 480px) {
   .app-container {
-    padding: 12px 10px 24px;
+    padding: 12px 10px 24px !important;
   }
 
   .app-input-card {
-    padding: 16px 12px 14px;
+    padding: 16px 12px 14px !important;
   }
 
   .task-item {
-    gap: 10px;
+    gap: 10px !important;
   }
 
   .task-text {
-    font-size: 14px;
+    font-size: 14px !important;
+  }
+
+  .app-subtitle {
+    font-size: clamp(0.95rem, 1.2vw, 1rem);
+    padding-right: 80px;
   }
 }

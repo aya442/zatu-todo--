@@ -1,6 +1,6 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration
@@ -20,4 +20,10 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
+// Ensure auth persistence is local so redirect/popup flows survive navigation
+setPersistence(auth, browserLocalPersistence).catch((e) => {
+  // Non-fatal: log but continue
+  // eslint-disable-next-line no-console
+  console.warn("Failed to set auth persistence:", e);
+});
 export default app;
