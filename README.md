@@ -1,6 +1,5 @@
 # 🚀 light-TODO
 
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > タスク管理ツール自体の作成にかかる手間を削減
@@ -19,61 +18,70 @@
 
 ## ✨ 主な機能
 
-- **機能A**: 入力欄にタスクを入力するだけでカードが作成
-- **機能B**: 日付や時刻を示す単語を入れると自動的にソート
+- 1 行でタスクを入力するだけでカードを追加
+- `今日` / `明日` / `4/2` / `4月2日` などから日付を自動判定
+- タスクを日付ごとに整理して表示
+- Firebase Authentication で Google ログインと匿名ログインに対応
+- Firestore へ同期して複数端末で同じデータを共有
+- ダークテーマ対応とテーマ切り替え
+- モバイル・PC 両対応のレスポンシブ UI
+- ドラッグ操作でタスクを移動（セクション間移動）
 
 ## 🛠 技術スタック
 
 | カテゴリ | 技術 |
 |:--|:--|
 | フロントエンド | React 19 |
-| バックエンド | - |
-| データベース | - |
-| インフラ | - |
-| ビルドツール | Vite 8 |
-| テスト | - |
+| バンドラー | Vite 8 |
+| 認証 | Firebase Authentication |
+| データベース | Firebase Firestore |
+| スタイリング | CSS / レスポンシブレイアウト |
 | リント | ESLint |
 
-## 🏗 アーキテクチャ
+## 🔧 プロジェクト構成
 
+- `src/App.jsx` - メイン UI、タスク操作、Firebase 認証・Firestore 同期
+- `src/firebase.js` - Firebase 初期化と認証プロバイダー設定
+- `src/App.css` - 全体スタイルとレスポンシブ / ダークテーマ対応
+- `package.json` - 依存関係とビルドスクリプト
+- `.gitignore` - ビルド成果物 / 環境情報の除外設定
 
 ## 🚀 はじめ方
 
 ### 前提条件
 
 - Node.js 20.x 以上
-- npm（Node.js に同梱）
+- npm
 
 ### セットアップ
 
 ```bash
-# リポジトリをクローン
 git clone https://github.com/yourname/project.git
-cd project
-
-# 依存関係をインストール
+cd zatu-todo本体
 npm install
-
-# 開発サーバーを起動
 npm run dev
 ```
 
-ブラウザで `http://localhost:5173` を開くとアプリが表示されます。
+開発サーバーが立ち上がったら、`http://localhost:5173` にアクセスしてください。
 
-### 追加コマンド
+### 本番ビルド
 
 ```bash
-# 本番ビルド
 npm run build
-
-# ローカルプレビュー
 npm run preview
+```
 
-# ESLint でコードをチェック
+### 静的チェック
+
+```bash
 npm run lint
 ```
 
+## 🔐 Firebase の注意
 
-## 📄 ライセンス
+Firebase のプロジェクト設定は `src/firebase.js` に記述されています。
+公開リポジトリに機密情報を残さない場合は、`.env` などに切り出して管理してください。
+
+## 📝 ライセンス
 
 このプロジェクトは [MIT License](LICENSE) の下で公開されています。
