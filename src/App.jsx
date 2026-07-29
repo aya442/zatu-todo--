@@ -292,7 +292,7 @@ function TaskItem({ task, onToggle, onDelete, onEdit, onMove }) {
 }
 
 // タスクのグループセクションのコンポーネント
-function TaskSection({ title, tasks, onToggle, onDelete, onEdit, onMove }) {
+function TaskSection({ title, tasks, onToggle, onDelete, onEdit, onMove, onRemoveSection }) {
   // セクション内にタスクをドロップしたときに移動を反映する
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -313,8 +313,17 @@ function TaskSection({ title, tasks, onToggle, onDelete, onEdit, onMove }) {
       onDrop={handleDrop}
     >
       <h2 style={styles.sectionTitle}>
-        {title}
+        <span>{title}</span>
         <span style={styles.sectionCount}>{tasks.length}</span>
+        {onRemoveSection && tasks.length === 0 && (
+          <button
+            type="button"
+            style={styles.sectionRemove}
+            onClick={() => onRemoveSection(title)}
+          >
+            ✕
+          </button>
+        )}
       </h2>
 
       <div style={styles.sectionList}>
@@ -427,6 +436,10 @@ export default function App() {
     setTasks((prev) => prev.filter((task) => task.id !== id));
   }
 
+  function removeDateSection(label) {
+    setDateSections((prev) => prev.filter((section) => section !== label));
+  }
+
   function editTask(id, newText) {
     setTasks((prev) =>
       prev.map((task) =>
@@ -525,6 +538,7 @@ export default function App() {
                   onDelete={deleteTask}
                   onEdit={editTask}
                   onMove={moveTask}
+                  onRemoveSection={removeDateSection}
                 />
               ))}
             </div>
@@ -626,6 +640,16 @@ const styles = {
     fontSize: "12px",
     color: "#777",
     fontWeight: 500,
+  },
+  sectionRemove: {
+    marginLeft: "auto",
+    padding: "4px 8px",
+    border: "1px solid #ddd",
+    borderRadius: "12px",
+    background: "#fff",
+    color: "#999",
+    cursor: "pointer",
+    fontSize: "12px",
   },
   sectionList: {
     display: "flex",
