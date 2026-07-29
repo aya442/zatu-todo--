@@ -6,7 +6,7 @@
 
 サイトはこちら https://light-todo-24f87.web.app/
 
-![スクリーンショット](media\image.png)
+[スクリーンショット](/media/image.png)
 
 ## 📖 概要
 
